@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#173b35">
+  <title>BT INVO | Inventory</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
+  <script src="{{ url_for('static', filename='app.js') }}" defer></script>
+</head>
+<body>
+  <main id="login-screen" class="login-screen" hidden>
+    <section class="login-brand">
+      <div class="brand-mark brand-mark-large"><span></span><span></span><span></span><span></span></div>
+      <p class="eyebrow">STOCK, IN GOOD ORDER</p>
+      <h1>BT INVO</h1>
+      <p class="login-copy">A clearer view of every item, order and movement.</p>
+      <div class="login-art" aria-hidden="true"><div class="art-shelf shelf-one"></div><div class="art-shelf shelf-two"></div><div class="art-box box-one"></div><div class="art-box box-two"></div><div class="art-box box-three"></div><div class="art-vase"></div></div>
+      <span class="login-edition">INVENTORY MANAGEMENT · 01</span>
+    </section>
+    <section class="login-panel">
+      <div class="login-form-wrap">
+        <p class="eyebrow">WELCOME BACK</p>
+        <h2>Sign in to your workspace</h2>
+        <p class="muted">Use your BT INVO account to continue.</p>
+        <form id="login-form" class="form-stack">
+          <label>Username<input name="username" autocomplete="username" required autofocus></label>
+          <label>Password<input name="password" type="password" autocomplete="current-password" required></label>
+          <p class="form-error" id="login-error" role="alert"></p>
+          <button class="button button-primary button-wide" type="submit">Sign in <span aria-hidden="true">→</span></button>
+        </form>
+        <p class="login-footnote">Secure workspace · Local inventory database</p>
+      </div>
+    </section>
+  </main>
+
+  <div id="app-shell" class="app-shell" hidden>
+    <aside class="sidebar">
+      <a class="brand" href="#overview" data-view="overview" aria-label="BT INVO overview">
+        <span class="brand-mark"><span></span><span></span><span></span><span></span></span>
+        <span class="brand-name">BT <b>INVO</b><small>INVENTORY</small></span>
+      </a>
+      <p class="nav-heading">WORKSPACE</p>
+      <nav class="primary-nav" aria-label="Main navigation">
+        <button class="nav-item active" data-view="overview"><span class="nav-glyph">◫</span>Overview</button>
+        <button class="nav-item" data-view="items"><span class="nav-glyph">▤</span>Items</button>
+          <button class="nav-item" data-view="current-stock"><span class="nav-glyph">▦</span>Current stock</button>
+        <button class="nav-item" data-view="suppliers"><span class="nav-glyph">⇄</span>Suppliers</button>
+        <button class="nav-item" data-view="receiving"><span class="nav-glyph">↓</span>Stock in</button>
+        <button class="nav-item" data-view="issues"><span class="nav-glyph">↑</span>Stock out</button>
+        <button class="nav-item" data-view="orders"><span class="nav-glyph">▧</span>Purchase orders</button>
+        <button class="nav-item" data-view="reports"><span class="nav-glyph">▥</span>Reports</button>
+        <button class="nav-item" data-view="settings" id="settings-nav"><span class="nav-glyph">⚙</span>Settings & data</button>
+      </nav>
+      <div class="sidebar-bottom">
+        <p class="nav-heading">ADMINISTRATION</p>
+        <button class="nav-item" data-view="users" id="users-nav"><span class="nav-glyph">◎</span>Users</button>
+        <div class="sidebar-user"><span class="avatar" id="sidebar-avatar">B</span><span class="sidebar-user-copy"><b id="sidebar-username">User</b><small id="sidebar-role">STAFF</small></span><button class="icon-button sidebar-logout" id="logout-button" title="Sign out" aria-label="Sign out">↗</button></div>
+      </div>
+    </aside>
+    <main class="main-area">
+      <header class="topbar">
+        <div class="breadcrumbs"><span>BT INVO</span><span class="crumb-divider">/</span><b id="crumb-label">Overview</b></div>
+        <div class="topbar-actions"><span class="today-label" id="today-label"></span><button class="button button-primary top-add" data-action="add-stock">＋ <span>Receive stock</span></button></div>
+      </header>
+      <div class="page-content" id="page-content"></div>
+      <footer class="app-footer">Powered by JC007</footer>
+    </main>
+  </div>
+
+  <dialog id="modal" class="modal"><div id="modal-content"></div></dialog>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+</body>
+</html>

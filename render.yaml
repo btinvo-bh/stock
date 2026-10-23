@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: bt-invo
+    runtime: python
+    plan: starter
+    numInstances: 1
+    buildCommand: pip install -r requirements.txt
+    startCommand: python render_start.py
+    disk:
+      name: bt-invo-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.13.4
+      - key: BT_INVO_DATABASE
+        value: /var/data/bt_invo.sqlite3
+      - key: BT_INVO_INSTANCE_DIR
+        value: /var/data/instance
+      - key: BT_INVO_MASTER_USERNAME
+        value: jitesh
+      - key: BT_INVO_MASTER_PASSWORD
+        generateValue: true
+      - key: BT_INVO_SECRET_KEY
+        generateValue: true
