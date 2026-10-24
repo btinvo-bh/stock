@@ -283,10 +283,10 @@ function renderSettings() {
   }).join('');
   const unitRows = state.data.uoms.map(unit => `<div class="settings-row"><span><b>${esc(unit.name)}</b><small>${number(unit.default_pack_count)} × ${number(unit.default_pack_size)} ${esc(unit.pack_unit)} → ${esc(unit.base_unit)}</small></span><button class="button button-danger button-small" data-delete-unit="${unit.id}">Delete</button></div>`).join('');
   const auditRows = state.data.audit.slice(0, 60).map(event => `<tr><td>${esc(event.created_at)}</td><td>${esc(event.username || 'System')}</td><td>${esc(event.action)}</td><td>${esc(event.entity_type)}${event.entity_id ? ` #${event.entity_id}` : ''}</td><td>${esc(event.details)}</td></tr>`);
-  const drivePanel = state.user.role === 'master' ? `<section class="section-panel form-panel drive-panel"><h2>Google Drive sync</h2><p>SQLite remains available on this server while offline. Master can connect Drive; successful changes upload a consistent database snapshot automatically when online.</p>
+  const drivePanel = state.user.role === 'master' && state.data.driveSyncSupported ? `<section class="section-panel form-panel drive-panel"><h2>Google Drive sync</h2><p>SQLite remains available on this server while offline. Master can connect Drive; successful changes upload a consistent database snapshot automatically when online.</p>
       <div id="drive-status"><div class="loading-state">Checking Drive connection…</div></div>
       <form class="entry-form drive-client-form" data-form="drive-client"><label>Google OAuth Web client JSON<input type="file" name="client_json" accept="application/json,.json" required></label><span class="field-hint">Create a Web application OAuth client in Google Cloud Console and add the callback URL shown above.</span><button class="button button-secondary" type="submit">Save OAuth client</button></form>
-    </section>` : '';
+    </section>` : state.user.role === 'master' ? `<section class="section-panel form-panel"><h2>Database backups</h2><p>This deployment uses Turso’s hosted database. Google Drive background sync is unavailable on Vercel; manage database backups from your Turso dashboard.</p></section>` : '';
   const profile = state.data.businessProfile;
   return `${heading('WORKSPACE ADMINISTRATION', 'Settings & data', 'Configure units and categories, protect your database, and review changes.', '<button class="button button-secondary" data-action="change-password">Change my password</button>')}
     <div class="settings-grid">

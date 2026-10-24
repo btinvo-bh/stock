@@ -11,9 +11,21 @@ pip install -r requirements.txt
 python app.py
 ```
 
-Open `http://localhost:5000`. The database is created as `bt_invo.sqlite3` in the project directory. Set `BT_INVO_DATABASE` to choose another database path, `BT_INVO_SECRET_KEY` to provide a session key, or `PORT` to choose another port.
+Open `http://localhost:5000`. Without Turso credentials, the database is created as `bt_invo.sqlite3` in the project directory. Set `BT_INVO_DATABASE` to choose another local database path, `BT_INVO_SECRET_KEY` to provide a session key, or `PORT` to choose another port. To use a hosted Turso database locally, set both `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN`.
 
 When hosting behind an HTTPS reverse proxy, set `BT_INVO_PUBLIC_URL` to the app's public origin, for example `https://inventory.example.com` (no trailing slash), and restart the app. Google Drive displays the matching `/api/drive/callback` URI in Settings; add that exact URI to the Google OAuth Web client. Without this setting, the app uses the forwarded host and HTTPS scheme from the proxy.
+
+## Deploy on Vercel with Turso
+
+Vercel runs Flask as a serverless function, so its local filesystem is temporary and cannot safely store the inventory database. This project uses Turso's SQLite-compatible hosted database when `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` are configured. The app creates and updates its schema in that database; it does not create a local SQLite database in this mode. Vercel and Turso both offer free-tier options, subject to their current quotas, eligibility, and pricing. Vercel's Hobby plan is restricted to personal, non-commercial use; check its current terms before using it for a business inventory system.
+
+1. Create a Turso account and database, then retrieve its URL and an auth token. For example, with the Turso CLI: `turso db create bt-invo`, `turso db show bt-invo --url`, and `turso db tokens create bt-invo`.
+2. Import this repository into Vercel. Vercel detects the Flask app from `app.py`, installs `requirements.txt`, and serves static assets from `public/`.
+3. Add these environment variables in the Vercel project settings for **Production** (and Preview if needed): `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, `BT_INVO_MASTER_USERNAME`, `BT_INVO_MASTER_PASSWORD` (at least 12 characters), and `BT_INVO_SECRET_KEY`. Generate a long random session key, for example with `python -c "import secrets; print(secrets.token_urlsafe(48))"`. Keep the Turso token, master password, and session key private.
+4. Deploy. On its first start, the app creates the schema and the master account in Turso. This starts a fresh database; an existing local SQLite file is not imported automatically. Sign in with the configured master username and password. Changing the bootstrap variables later does not change an existing account password.
+5. Use `/api/backup` or the Settings page to download a SQLite snapshot, and keep a copy outside Vercel. The Google Drive background-sync feature is unavailable with Turso; use Turso's database-management tools for hosted database operations and maintain separate backups.
+
+The app still uses the ordinary local SQLite file when Turso variables are not set, so local development and the Render deployment below remain supported. Do not use a local `.sqlite3` file as Vercel's production database.
 
 ## Deploy on Render
 
@@ -48,5 +60,5 @@ The app does not create accounts with published default passwords. Before the fi
 	2. Configure the OAuth consent screen and add the account that will own the backup as a test user if the app is still in testing.
 	3. Create an OAuth client ID of type Web application. Copy the authorized redirect URI shown in BT INVO into the client’s Authorized redirect URIs, then download its JSON file.
 	4. In BT INVO, upload that JSON and choose Connect Google Drive. Sign in to the backup-owning Google account and approve access.
-- Drive sync uses Google’s private app-data folder, not a visible file in My Drive. SQLite remains the working database; successful changes queue a consistent snapshot, and a failed upload retries about once a minute while local work remains available. A master can request a manual sync or download the Drive backup.
+- In local and Render deployments, Drive sync uses Google’s private app-data folder, not a visible file in My Drive. SQLite remains the working database; successful changes queue a consistent snapshot, and a failed upload retries about once a minute while local work remains available. A master can request a manual sync or download the Drive backup. Turso deployments use the hosted database directly and disable this background sync.
 - Drive sync backs up one BT INVO server’s database; it does not merge separate databases from multiple servers. OAuth tokens are encrypted with a local key in the ignored `instance/` directory and are omitted from cloud snapshots. Reconnect Drive if that key is lost.

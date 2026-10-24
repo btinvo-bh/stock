@@ -29,15 +29,31 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 
 
 ROOT = Path(__file__).resolve().parent
-DATABASE = Path(os.environ.get("BT_INVO_DATABASE", ROOT / "bt_invo.sqlite3"))
-INSTANCE_DIR = Path(os.environ.get("BT_INVO_INSTANCE_DIR", ROOT / "instance"))
+IS_VERCEL = os.environ.get("VERCEL") == "1"
+TURSO_DATABASE_URL = os.environ.get("TURSO_DATABASE_URL", "").strip()
+TURSO_AUTH_TOKEN = os.environ.get("TURSO_AUTH_TOKEN", "").strip()
+if bool(TURSO_DATABASE_URL) != bool(TURSO_AUTH_TOKEN):
+    raise RuntimeError("Set both TURSO_DATABASE_URL and TURSO_AUTH_TOKEN to use Turso.")
+if IS_VERCEL and not TURSO_DATABASE_URL:
+    raise RuntimeError("Vercel deployments require TURSO_DATABASE_URL and TURSO_AUTH_TOKEN; local SQLite is not persistent there.")
+REMOTE_DATABASE = bool(TURSO_DATABASE_URL)
+DATABASE = None if REMOTE_DATABASE else Path(os.environ.get("BT_INVO_DATABASE", ROOT / "bt_invo.sqlite3"))
+INSTANCE_DIR = Path(os.environ.get(
+    "BT_INVO_INSTANCE_DIR",
+    "/tmp/bt-invo-instance" if IS_VERCEL else ROOT / "instance",
+))
 CATEGORIES = ("CHOCOLATE", "CAKE", "FLOWERS", "COFFE", "CLEANING", "GENERAL")
 UNITS = (("kg", 5, "kg", 1, "kg"), ("gram", 0.5, "gram", 1, "gram"), ("pieces", 1, "pieces", 1, "pieces"), ("box", 6, "pieces", 6, "pieces"))
 CURRENCIES = ("INR", "LKR", "USD", "AED", "BHD", "EUR", "GBP", "AUD", "CAD")
 ROLES = ("master", "admin", "staff")
 
-app = Flask(__name__)
-app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE="Lax", MAX_CONTENT_LENGTH=2 * 1024 * 1024)
+app = Flask(__name__, static_folder=None if IS_VERCEL else "public", static_url_path="")
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+    SESSION_COOKIE_SECURE=IS_VERCEL,
+    MAX_CONTENT_LENGTH=2 * 1024 * 1024,
+)
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 
 DRIVE_SCOPES = ["https://www.googleapis.com/auth/drive.appdata"]
@@ -49,17 +65,27 @@ drive_sync_worker = None
 
 
 def connect_db():
-    connection = sqlite3.connect(DATABASE)
-    connection.row_factory = sqlite3.Row
+    if REMOTE_DATABASE:
+        import turso_serverless
+
+        connection = turso_serverless.connect(
+            TURSO_DATABASE_URL,
+            auth_token=TURSO_AUTH_TOKEN,
+        )
+        connection.row_factory = turso_serverless.Row
+    else:
+        connection = sqlite3.connect(DATABASE)
+        connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA foreign_keys = ON")
     return connection
 
 
 def initialize_database():
-    DATABASE.parent.mkdir(parents=True, exist_ok=True)
+    if DATABASE is not None:
+        DATABASE.parent.mkdir(parents=True, exist_ok=True)
     db = connect_db()
-    db.executescript(
-        """
+    db.execute("BEGIN IMMEDIATE")
+    schema = """
         CREATE TABLE IF NOT EXISTS app_settings (
             key TEXT PRIMARY KEY,
             value TEXT NOT NULL
@@ -164,7 +190,9 @@ def initialize_database():
         CREATE INDEX IF NOT EXISTS idx_movements_item ON stock_movements(item_id);
         CREATE INDEX IF NOT EXISTS idx_orders_date ON purchase_orders(order_date);
         """
-    )
+    for statement in schema.split(";"):
+        if statement.strip():
+            db.execute(statement)
     user_columns = {row[1] for row in db.execute("PRAGMA table_info(users)")}
     if "password_change_required" not in user_columns:
         db.execute("ALTER TABLE users ADD COLUMN password_change_required INTEGER NOT NULL DEFAULT 0")
@@ -429,7 +457,7 @@ def drive_sync_worker_loop():
 
 def ensure_drive_sync_worker():
     global drive_sync_worker
-    if not drive_client_secrets_path().is_file() or not setting_value("drive_credentials"):
+    if REMOTE_DATABASE or not drive_client_secrets_path().is_file() or not setting_value("drive_credentials"):
         return
     with drive_sync_worker_guard:
         if drive_sync_worker is None or not drive_sync_worker.is_alive():
@@ -440,7 +468,7 @@ def ensure_drive_sync_worker():
 
 @app.after_request
 def queue_drive_snapshot(response):
-    if request.method not in ("POST", "PUT", "PATCH", "DELETE") or not 200 <= response.status_code < 300:
+    if REMOTE_DATABASE or request.method not in ("POST", "PUT", "PATCH", "DELETE") or not 200 <= response.status_code < 300:
         return response
     if request.path in ("/api/login", "/api/logout", "/api/drive/sync", "/api/drive/auto-sync", "/api/drive/client"):
         return response
@@ -688,6 +716,7 @@ def bootstrap():
             "uoms": [serialize(row) for row in db.execute("SELECT * FROM product_uom ORDER BY id")],
             "currency": app_setting("currency", "INR"),
             "businessProfile": business_profile(),
+            "driveSyncSupported": not REMOTE_DATABASE,
             "suppliers": [serialize(row) for row in db.execute("SELECT * FROM suppliers ORDER BY name COLLATE NOCASE")],
             "items": [serialize(row) for row in items],
             "users": [serialize(row) for row in db.execute("SELECT id, username, role, active FROM users ORDER BY username")],
@@ -1001,6 +1030,42 @@ def export_movements():
     return Response(output.getvalue(), mimetype="text/csv", headers={"Content-Disposition": "attachment; filename=bt-invo-movements.csv"})
 
 
+def quote_sqlite_identifier(identifier):
+    return '"' + identifier.replace('"', '""') + '"'
+
+
+def export_database_snapshot(source, destination):
+    objects = source.execute(
+        """SELECT type, name, sql FROM sqlite_master
+           WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%'
+           ORDER BY CASE type WHEN 'table' THEN 0 ELSE 1 END, name"""
+    ).fetchall()
+    tables = [row for row in objects if row["type"] == "table"]
+    destination.execute("PRAGMA foreign_keys = OFF")
+    for table in tables:
+        destination.execute(table["sql"])
+    for table in tables:
+        table_name = quote_sqlite_identifier(table["name"])
+        columns = [
+            row["name"]
+            for row in source.execute(f"PRAGMA table_info({table_name})").fetchall()
+        ]
+        if not columns:
+            continue
+        column_list = ", ".join(quote_sqlite_identifier(column) for column in columns)
+        placeholders = ", ".join("?" for _ in columns)
+        rows = source.execute(f"SELECT * FROM {table_name}").fetchall()
+        destination.executemany(
+            f"INSERT INTO {table_name} ({column_list}) VALUES ({placeholders})",
+            (tuple(row) for row in rows),
+        )
+    for item in objects:
+        if item["type"] != "table":
+            destination.execute(item["sql"])
+    destination.commit()
+    destination.execute("PRAGMA foreign_keys = ON")
+
+
 @app.get("/api/backup")
 @login_required
 @roles_required("master", "admin")
@@ -1009,7 +1074,10 @@ def backup_database():
     backup_path = Path(handle.name)
     handle.close()
     destination = sqlite3.connect(backup_path)
-    database().backup(destination)
+    if REMOTE_DATABASE:
+        export_database_snapshot(database(), destination)
+    else:
+        database().backup(destination)
     destination.close()
     response = send_file(backup_path, as_attachment=True, download_name=f"bt-invo-backup-{date.today().isoformat()}.sqlite3", mimetype="application/vnd.sqlite3")
     response.call_on_close(lambda: backup_path.unlink(missing_ok=True))
